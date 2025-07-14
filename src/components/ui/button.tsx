@@ -18,6 +18,9 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        "jarvis-gold": "bg-jarvis-gold text-jarvis-black shadow-jarvis-glow hover:bg-jarvis-gold-bright hover:shadow-jarvis-glow-strong transition-all duration-300",
+        "jarvis-red": "bg-jarvis-red text-foreground shadow-red-glow hover:bg-jarvis-red-dark transition-all duration-300",
+        "jarvis-ghost": "text-muted-foreground hover:text-jarvis-gold hover:bg-jarvis-grey transition-all duration-200",
       },
       size: {
         default: "h-10 px-4 py-2",
