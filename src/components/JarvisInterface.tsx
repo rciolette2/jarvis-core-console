@@ -1,294 +1,159 @@
-import { useState, useRef, useEffect } from 'react';
-import { Mic, Send, Paperclip, History, Settings, Bell } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Mic, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { JarvisAvatar } from './JarvisAvatar';
-import { ChatMessage } from './ChatMessage';
-import { TypingIndicator } from './TypingIndicator';
-import { StatusIndicator } from './StatusIndicator';
+import jarvisMask from '@/assets/jarvis-mask.png';
 
-type AgentState = 'idle' | 'listening' | 'responding' | 'error';
-type ConnectionStatus = 'online' | 'warning' | 'error';
-
-interface Message {
-  id: string;
-  content: string;
-  isUser: boolean;
-  timestamp: Date;
-}
-
-export function JarvisInterface() {
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [agentState, setAgentState] = useState<AgentState>('idle');
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('online');
+export const JarvisInterface = () => {
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [hasError, setHasError] = useState(false);
   const { toast } = useToast();
+  const audioRef = useRef<MediaRecorder | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const addMessage = (content: string, isUser: boolean) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      content,
-      isUser,
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, newMessage]);
-  };
-
-  const sendToWebhook = async (userMessage: string) => {
+  const sendToWebhook = async (audioBlob: Blob) => {
     if (!webhookUrl) {
-      toast({
-        title: "⚠️ Configuração necessária",
-        description: "Configure o webhook URL nas configurações primeiro.",
-        variant: "destructive",
-      });
+      setWebhookUrl(prompt('Configure a URL do webhook:') || '');
       return;
     }
 
+    setHasError(false);
+    setIsSpeaking(true);
+
     try {
-      setAgentState('responding');
-      setIsTyping(true);
-      setConnectionStatus('online');
+      const formData = new FormData();
+      formData.append('audio', audioBlob);
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          timestamp: new Date().toISOString(),
-          user_id: 'jarvis-user'
-        }),
+        body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`Webhook retornou erro: ${response.status}`);
+        throw new Error('Webhook failed');
       }
 
-      const data = await response.json();
-      
+      // Simular resposta visual
       setTimeout(() => {
-        setIsTyping(false);
-        addMessage(data.response || data.message || 'Resposta recebida', false);
-        setAgentState('idle');
-      }, 1000);
+        setIsSpeaking(false);
+      }, 2000);
 
     } catch (error) {
-      console.error('Erro ao comunicar com webhook:', error);
-      setConnectionStatus('error');
-      setAgentState('error');
-      setIsTyping(false);
+      setIsSpeaking(false);
+      setHasError(true);
       
-      toast({
-        title: "⚠️ O Jarvis não conseguiu responder. Tente novamente.",
-        description: "Verifique sua conexão e o webhook URL.",
-        variant: "destructive",
-      });
-
-      setTimeout(() => {
-        if (agentState === 'error') {
-          setAgentState('idle');
-          setConnectionStatus('warning');
-        }
-      }, 3000);
+      setTimeout(() => setHasError(false), 3000);
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!message.trim()) return;
+  const toggleListening = async () => {
+    if (isListening) {
+      // Parar gravação
+      if (audioRef.current) {
+        audioRef.current.stop();
+      }
+      setIsListening(false);
+    } else {
+      // Iniciar gravação
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        audioRef.current = mediaRecorder;
 
-    const userMessage = message.trim();
-    setMessage('');
-    addMessage(userMessage, true);
-    
-    await sendToWebhook(userMessage);
+        const audioChunks: Blob[] = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+          audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          sendToWebhook(audioBlob);
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        setIsListening(true);
+
+        // Auto-stop após 10 segundos
+        setTimeout(() => {
+          if (mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            setIsListening(false);
+          }
+        }, 10000);
+
+      } catch (error) {
+        toast({
+          title: "Erro de microfone",
+          description: "Não foi possível acessar o microfone",
+          variant: "destructive",
+        });
+      }
+    }
   };
 
-  const handleVoiceInput = () => {
-    setAgentState('listening');
-    // Simular captura de voz por 3 segundos
-    setTimeout(() => {
-      setAgentState('idle');
-      toast({
-        title: "🎤 Entrada de voz",
-        description: "Funcionalidade em desenvolvimento",
-      });
-    }, 3000);
-  };
-
-  const handleFileUpload = () => {
-    toast({
-      title: "📎 Upload de arquivo",
-      description: "Funcionalidade em desenvolvimento",
-    });
+  const resetConversation = () => {
+    setIsSpeaking(false);
+    setIsListening(false);
+    setHasError(false);
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-16 bg-card border-r border-border transition-transform duration-300 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-      }`}>
-        <div className="flex flex-col items-center py-4 space-y-4">
-          <Button
-            variant="jarvis-ghost"
-            size="icon"
-            onClick={() => toast({ title: "📚 Histórico", description: "Em desenvolvimento" })}
-          >
-            <History className="h-5 w-5" />
-          </Button>
-          
-          <Button
-            variant="jarvis-ghost"
-            size="icon"
-            onClick={() => {
-              const url = prompt("Digite o URL do webhook:");
-              if (url) {
-                setWebhookUrl(url);
-                setConnectionStatus('online');
-                toast({ title: "✅ Webhook configurado", description: "Jarvis está pronto!" });
-              }
-            }}
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
-          
-          <Button
-            variant="jarvis-ghost"
-            size="icon"
-            onClick={() => toast({ title: "🔔 Notificações", description: "Em desenvolvimento" })}
-          >
-            <Bell className="h-5 w-5" />
-          </Button>
-        </div>
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Máscara Central */}
+      <div className="relative mb-16">
+        <img 
+          src={jarvisMask} 
+          alt="Jarvis Mask"
+          className={`w-80 h-96 md:w-96 md:h-[28rem] object-contain transition-all duration-500 ${
+            isSpeaking ? 'scale-105 animate-jarvis-pulse' : ''
+          } ${
+            isListening ? 'animate-eyes-glow' : ''
+          }`}
+          style={{
+            filter: isListening ? 'drop-shadow(0 0 30px #ffd700) drop-shadow(0 0 60px #dc2626)' : 
+                    isSpeaking ? 'drop-shadow(0 0 40px #ffd700)' : 
+                    'drop-shadow(0 0 15px #ffd700)',
+          }}
+        />
+        
+        {/* Efeito de pulsação nas bordas quando ouvindo */}
+        {isListening && (
+          <div className="absolute inset-0 rounded-full border-2 border-jarvis-gold animate-glow-ring"></div>
+        )}
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 md:ml-16 flex flex-col">
-        {/* Header com status */}
-        <header className="bg-card border-b border-border p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              <Settings className="h-5 w-5" />
-            </Button>
-            <h1 className="text-xl font-bold text-jarvis-gold">JARVIS</h1>
-          </div>
-          
-          <StatusIndicator status={connectionStatus} />
-        </header>
+      {/* Botões */}
+      <div className="flex items-center space-x-8">
+        <Button
+          variant={isListening ? "jarvis-red" : "jarvis-ghost"}
+          size="lg"
+          onClick={toggleListening}
+          className={`w-16 h-16 rounded-full transition-all duration-300 ${
+            isListening ? 'shadow-red-glow animate-pulse' : 'hover:shadow-jarvis-glow'
+          }`}
+        >
+          <Mic className="w-8 h-8" />
+        </Button>
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col relative overflow-hidden">
-          {/* Central glow effect */}
-          <div className="absolute inset-0 bg-gradient-radial from-jarvis-gold/5 via-transparent to-transparent pointer-events-none" />
-          
-          {/* Jarvis Avatar */}
-          <div className="flex justify-center py-8">
-            <JarvisAvatar 
-              state={agentState}
-              isListening={agentState === 'listening'}
-              isResponding={agentState === 'responding' || isTyping}
-            />
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4 scrollbar-thin">
-            {messages.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <p className="text-lg">Olá, eu sou o JARVIS</p>
-                <p className="text-sm">Seu assistente pessoal de IA está pronto para ajudar</p>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <ChatMessage
-                  key={msg.id}
-                  content={msg.content}
-                  isUser={msg.isUser}
-                  timestamp={msg.timestamp}
-                />
-              ))
-            )}
-            
-            {isTyping && <TypingIndicator />}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Overlay para foco durante resposta */}
-          {agentState === 'responding' && (
-            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-none" />
-          )}
-        </div>
-
-        {/* Input Area */}
-        <div className="bg-card border-t border-border p-4">
-          <form onSubmit={handleSendMessage} className="flex items-center space-x-3">
-            {/* Voice button */}
-            <Button
-              type="button"
-              size="icon"
-              variant="jarvis-red"
-              onClick={handleVoiceInput}
-              disabled={agentState === 'responding'}
-            >
-              <Mic className={`h-5 w-5 ${agentState === 'listening' ? 'animate-pulse' : ''}`} />
-            </Button>
-
-            {/* Message input */}
-            <div className="flex-1">
-              <Input
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Fale com o Jarvis..."
-                className="bg-input border-border text-foreground placeholder:text-muted-foreground focus:border-jarvis-gold focus:ring-jarvis-gold/20"
-                disabled={agentState === 'responding'}
-              />
-            </div>
-
-            {/* File upload button */}
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="border-border hover:bg-jarvis-grey hover:border-jarvis-gold transition-all duration-200"
-              onClick={handleFileUpload}
-              disabled={agentState === 'responding'}
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
-
-            {/* Send button */}
-            <Button
-              type="submit"
-              size="icon"
-              variant="jarvis-gold"
-              disabled={!message.trim() || agentState === 'responding'}
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-          </form>
-        </div>
+        <Button
+          variant="jarvis-gold"
+          size="lg"
+          onClick={resetConversation}
+          className="w-16 h-16 rounded-full hover:shadow-jarvis-glow-strong transition-all duration-300"
+        >
+          <RotateCcw className="w-8 h-8" />
+        </Button>
       </div>
+
+      {/* Erro discreto */}
+      {hasError && (
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-jarvis-red text-sm animate-fade-in">
+          ⚠️ Erro ao se comunicar com Jarvis.
+        </div>
+      )}
     </div>
   );
-}
+};
