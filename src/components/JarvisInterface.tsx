@@ -1,16 +1,43 @@
-import React, { useState, useRef } from 'react';
-import { Mic, RotateCcw } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Mic, Square, Lock, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import jarvisMask from '@/assets/jarvis-mask.png';
 
 export const JarvisInterface = () => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isActive, setIsActive] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState('https://n8n.rcdigitais.com.br/webhook-test/jarvis');
   const [hasError, setHasError] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const { toast } = useToast();
   const audioRef = useRef<MediaRecorder | null>(null);
+  const micButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const playActivationSound = () => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.5);
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  };
+
+  useEffect(() => {
+    setIsActive(true);
+    playActivationSound();
+  }, []);
 
   const sendToWebhook = async (audioBlob: Blob) => {
     if (!webhookUrl) {
@@ -30,130 +57,107 @@ export const JarvisInterface = () => {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Webhook failed');
-      }
+      if (!response.ok) throw new Error('Webhook failed');
 
-      // Simular resposta visual
-      setTimeout(() => {
-        setIsSpeaking(false);
-      }, 2000);
-
+      setTimeout(() => setIsSpeaking(false), 2000);
     } catch (error) {
       setIsSpeaking(false);
       setHasError(true);
-      
       setTimeout(() => setHasError(false), 3000);
     }
   };
 
-  const toggleListening = async () => {
-    if (isListening) {
-      // Parar gravação
-      if (audioRef.current) {
-        audioRef.current.stop();
-      }
-      setIsListening(false);
-    } else {
-      // Iniciar gravação
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        audioRef.current = mediaRecorder;
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      audioRef.current = mediaRecorder;
+      const audioChunks: Blob[] = [];
 
-        const audioChunks: Blob[] = [];
-        
-        mediaRecorder.ondataavailable = (event) => {
-          audioChunks.push(event.data);
-        };
+      mediaRecorder.ondataavailable = (event) => audioChunks.push(event.data);
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        sendToWebhook(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
 
-        mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-          sendToWebhook(audioBlob);
-          stream.getTracks().forEach(track => track.stop());
-        };
+      mediaRecorder.start();
+      setIsListening(true);
+    } catch (error) {
+      toast({
+        title: 'Erro de microfone',
+        description: 'Não foi possível acessar o microfone',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
 
-        mediaRecorder.start();
-        setIsListening(true);
+  const stopRecording = useCallback(() => {
+    if (audioRef.current && audioRef.current.state === 'recording') audioRef.current.stop();
+    setIsListening(false);
+    setIsLocked(false);
+  }, []);
 
-        // Auto-stop após 10 segundos
-        setTimeout(() => {
-          if (mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-            setIsListening(false);
-          }
-        }, 10000);
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!isListening && !isSpeaking) {
+      setDragStart({ x: e.clientX, y: e.clientY });
+      setIsDragging(false);
+      startRecording();
+    }
+  }, [isListening, isSpeaking, startRecording]);
 
-      } catch (error) {
-        toast({
-          title: "Erro de microfone",
-          description: "Não foi possível acessar o microfone",
-          variant: "destructive",
-        });
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (dragStart && isListening && !isLocked) {
+      const deltaX = e.clientX - dragStart.x;
+      const deltaY = Math.abs(e.clientY - dragStart.y);
+      if (deltaX > 60 && deltaY < 30) {
+        setIsDragging(true);
+        setIsLocked(true);
+        setDragStart(null);
       }
     }
-  };
+  }, [dragStart, isListening, isLocked]);
+
+  const handleMouseUp = useCallback(() => {
+    if (dragStart && isListening && !isLocked) stopRecording();
+    setDragStart(null);
+    setIsDragging(false);
+  }, [dragStart, isListening, isLocked, stopRecording]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (!isListening && !isSpeaking) {
+      const touch = e.touches[0];
+      setDragStart({ x: touch.clientX, y: touch.clientY });
+      setIsDragging(false);
+      startRecording();
+    }
+  }, [isListening, isSpeaking, startRecording]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (dragStart && isListening && !isLocked) {
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - dragStart.x;
+      const deltaY = Math.abs(touch.clientY - dragStart.y);
+      if (deltaX > 60 && deltaY < 30) {
+        setIsDragging(true);
+        setIsLocked(true);
+        setDragStart(null);
+      }
+    }
+  }, [dragStart, isListening, isLocked]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (dragStart && isListening && !isLocked) stopRecording();
+    setDragStart(null);
+    setIsDragging(false);
+  }, [dragStart, isListening, isLocked, stopRecording]);
 
   const resetConversation = () => {
+    stopRecording();
     setIsSpeaking(false);
-    setIsListening(false);
     setHasError(false);
   };
 
-  return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
-      {/* Máscara Central */}
-      <div className="relative mb-16">
-        <img 
-          src={jarvisMask} 
-          alt="Jarvis Mask"
-          className={`w-80 h-96 md:w-96 md:h-[28rem] object-contain transition-all duration-500 ${
-            isSpeaking ? 'scale-105 animate-jarvis-pulse' : ''
-          } ${
-            isListening ? 'animate-eyes-glow' : ''
-          }`}
-          style={{
-            filter: isListening ? 'drop-shadow(0 0 30px #ffd700) drop-shadow(0 0 60px #dc2626)' : 
-                    isSpeaking ? 'drop-shadow(0 0 40px #ffd700)' : 
-                    'drop-shadow(0 0 15px #ffd700)',
-          }}
-        />
-        
-        {/* Efeito de pulsação nas bordas quando ouvindo */}
-        {isListening && (
-          <div className="absolute inset-0 rounded-full border-2 border-jarvis-gold animate-glow-ring"></div>
-        )}
-      </div>
-
-      {/* Botões */}
-      <div className="flex items-center space-x-8">
-        <Button
-          variant={isListening ? "jarvis-red" : "jarvis-ghost"}
-          size="lg"
-          onClick={toggleListening}
-          className={`w-16 h-16 rounded-full transition-all duration-300 ${
-            isListening ? 'shadow-red-glow animate-pulse' : 'hover:shadow-jarvis-glow'
-          }`}
-        >
-          <Mic className="w-8 h-8" />
-        </Button>
-
-        <Button
-          variant="jarvis-gold"
-          size="lg"
-          onClick={resetConversation}
-          className="w-16 h-16 rounded-full hover:shadow-jarvis-glow-strong transition-all duration-300"
-        >
-          <RotateCcw className="w-8 h-8" />
-        </Button>
-      </div>
-
-      {/* Erro discreto */}
-      {hasError && (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-jarvis-red text-sm animate-fade-in">
-          ⚠️ Erro ao se comunicar com Jarvis.
-        </div>
-      )}
-    </div>
-  );
-};
+  return null; // The return statement is intentionally left empty as per the original code structure.
