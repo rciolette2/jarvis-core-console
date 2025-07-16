@@ -30,7 +30,6 @@ export const JarvisInterface = () => {
 
   // Som de ativação
   const playActivationSound = () => {
-    // Criar um som sintético parecido com abertura da máscara
     const AudioCtx = (window.AudioContext ?? window.webkitAudioContext) as typeof AudioContext;
     const audioContext = new AudioCtx();
     const oscillator = audioContext.createOscillator();
@@ -50,7 +49,6 @@ export const JarvisInterface = () => {
   };
 
   useEffect(() => {
-    // Ativar interface com som ao carregar
     setIsActive(true);
     setStatus('standby');
     playActivationSound();
@@ -69,7 +67,6 @@ export const JarvisInterface = () => {
         recordingIntervalRef.current = null;
       }
     }
-
     return () => {
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
@@ -79,47 +76,35 @@ export const JarvisInterface = () => {
 
   const sendToWebhook = async () => {
     if (!audioDataRef.current) return;
-    
     if (!webhookUrl) {
       setWebhookUrl(prompt('Configure a URL do webhook:') || '');
       return;
     }
-
     setHasError(false);
     setIsSpeaking(true);
     setStatus('processing');
-    
     const startTime = Date.now();
-
     try {
       const formData = new FormData();
       formData.append('audio', audioDataRef.current);
-
       const response = await fetch(webhookUrl, {
         method: 'POST',
         body: formData,
       });
-
       const endTime = Date.now();
       setLatency(endTime - startTime);
-
       if (!response.ok) {
         throw new Error('Webhook failed');
       }
-
-      // Tentar extrair resposta do webhook
       const responseData = await response.text();
       setResponseText(responseData || 'Comando processado com sucesso');
       setShowResponse(true);
       setStatus('speaking');
-
       audioDataRef.current = null;
-      
       setTimeout(() => {
         setIsSpeaking(false);
         setStatus('standby');
       }, 3000);
-
     } catch (error: unknown) {
       setIsSpeaking(false);
       setStatus('standby');
@@ -130,14 +115,11 @@ export const JarvisInterface = () => {
 
   const toggleRecording = async () => {
     if (isRecording) {
-      // Parar gravação e enviar automaticamente
       if (audioRef.current && audioRef.current.state === 'recording') {
         audioRef.current.stop();
       }
       setIsRecording(false);
       setStatus('standby');
-      
-      // Aguardar um pouco para o áudio ser processado, então enviar
       setTimeout(() => {
         if (audioDataRef.current) {
           playActivationSound();
@@ -145,28 +127,22 @@ export const JarvisInterface = () => {
         }
       }, 500);
     } else {
-      // Iniciar gravação
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
         audioRef.current = mediaRecorder;
-
         const audioChunks: Blob[] = [];
-        
-        mediaRecorder.ondataavailable = (event) => {
+        mediaRecorder.ondataavailable = event => {
           audioChunks.push(event.data);
         };
-
         mediaRecorder.onstop = () => {
           const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
           audioDataRef.current = audioBlob;
           stream.getTracks().forEach(track => track.stop());
         };
-
         mediaRecorder.start();
         setIsRecording(true);
         setStatus('listening');
-
       } catch (error: unknown) {
         toast({
           title: "Erro de microfone",
@@ -190,26 +166,23 @@ export const JarvisInterface = () => {
     audioDataRef.current = null;
   };
 
-  // Dados para os cantos HUD
+  // Dados HUD
   const topLeftData = [
     { label: 'v2.4.7', value: 'ONLINE', status: 'online' as const },
     { label: 'SYS', value: 'OPTIMAL' },
     { label: 'PWR', value: '100%' },
   ];
-
   const topRightData = [
     { label: 'VOICE', value: status === 'listening' ? 'ACTIVE' : 'STANDBY' },
     { label: 'MIC', value: isRecording ? 'RECORDING' : 'READY' },
     { label: 'CONN', value: 'SECURE', status: 'online' as const },
     { label: 'LATENCY', value: `${latency}ms` },
   ];
-
   const bottomLeftData = [
-    { label: 'AUDIO', value: isRecording ? `${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')}` : '0:00' },
+    { label: 'AUDIO', value: isRecording ? `${Math.floor(recordingTime/60)}:${(recordingTime%60).toString().padStart(2,'0')}` : '0:00' },
     { label: 'STATUS', value: status.toUpperCase() },
     { label: 'NEURAL', value: 'ACTIVE', status: 'online' as const },
   ];
-
   const bottomRightData = [
     { label: 'PROTOCOL', value: 'HTTP/2' },
     { label: 'ENDPOINT', value: 'SECURE' },
@@ -224,4 +197,4 @@ export const JarvisInterface = () => {
       <HudCorner data={bottomRightData} position="bottom-right" />
     </div>
   );
-}
+};
