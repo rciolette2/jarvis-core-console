@@ -10,7 +10,7 @@ export const JarvisInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isActive, setIsActive] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState('https://n8n.rcdigitais.com.br/webhook/jarvis1');
+  const [webhookUrl, setWebhookUrl] = useState('https://n8n.rcdigitais.com.br/webhook-test/jarvis1');
   const [hasError, setHasError] = useState(false);
   const [status, setStatus] = useState<'standby' | 'listening' | 'processing' | 'speaking'>('standby');
   const [recordingTime, setRecordingTime] = useState(0);
