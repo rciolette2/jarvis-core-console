@@ -1,20 +1,17 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Square, Lock, Unlock, RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, Send, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export const JarvisInterface = () => {
-  const [isListening, setIsListening] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isActive, setIsActive] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
+  const [hasAudio, setHasAudio] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState('https://n8n.rcdigitais.com.br/webhook-test/jarvis1');
   const [hasError, setHasError] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const { toast } = useToast();
   const audioRef = useRef<MediaRecorder | null>(null);
-  const micButtonRef = useRef<HTMLButtonElement | null>(null);
+  const audioDataRef = useRef<Blob | null>(null);
 
   // Som de ativação
   const playActivationSound = () => {
@@ -42,7 +39,9 @@ export const JarvisInterface = () => {
     playActivationSound();
   }, []);
 
-  const sendToWebhook = async (audioBlob: Blob) => {
+  const sendToWebhook = async () => {
+    if (!audioDataRef.current) return;
+    
     if (!webhookUrl) {
       setWebhookUrl(prompt('Configure a URL do webhook:') || '');
       return;
@@ -50,10 +49,11 @@ export const JarvisInterface = () => {
 
     setHasError(false);
     setIsSpeaking(true);
+    setHasAudio(false);
 
     try {
       const formData = new FormData();
-      formData.append('audio', audioBlob);
+      formData.append('audio', audioDataRef.current);
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -64,7 +64,7 @@ export const JarvisInterface = () => {
         throw new Error('Webhook failed');
       }
 
-      // Simular resposta visual
+      audioDataRef.current = null;
       setTimeout(() => {
         setIsSpeaking(false);
       }, 2000);
@@ -72,12 +72,11 @@ export const JarvisInterface = () => {
     } catch (error) {
       setIsSpeaking(false);
       setHasError(true);
-      
       setTimeout(() => setHasError(false), 3000);
     }
   };
 
-  const startRecording = useCallback(async () => {
+  const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -91,12 +90,13 @@ export const JarvisInterface = () => {
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-        sendToWebhook(audioBlob);
+        audioDataRef.current = audioBlob;
+        setHasAudio(true);
         stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
-      setIsListening(true);
+      setIsRecording(true);
 
     } catch (error) {
       toast({
@@ -105,218 +105,121 @@ export const JarvisInterface = () => {
         variant: "destructive",
       });
     }
-  }, [toast]);
+  };
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = () => {
     if (audioRef.current && audioRef.current.state === 'recording') {
       audioRef.current.stop();
     }
-    setIsListening(false);
-    setIsLocked(false);
-  }, []);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (!isListening && !isSpeaking) {
-      setDragStart({ x: e.clientX, y: e.clientY });
-      setIsDragging(false);
-      startRecording();
-    }
-  }, [isListening, isSpeaking, startRecording]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (dragStart && isListening && !isLocked) {
-      const deltaX = e.clientX - dragStart.x;
-      const deltaY = Math.abs(e.clientY - dragStart.y);
-      
-      // Se arrastar 60px para a direita, trava a gravação
-      if (deltaX > 60 && deltaY < 30) {
-        setIsDragging(true);
-        setIsLocked(true);
-        setDragStart(null);
-      }
-    }
-  }, [dragStart, isListening, isLocked]);
-
-  const handleMouseUp = useCallback(() => {
-    if (dragStart && isListening && !isLocked) {
-      // Se não foi travado, para a gravação
-      stopRecording();
-    }
-    setDragStart(null);
-    setIsDragging(false);
-  }, [dragStart, isListening, isLocked, stopRecording]);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    if (!isListening && !isSpeaking) {
-      const touch = e.touches[0];
-      setDragStart({ x: touch.clientX, y: touch.clientY });
-      setIsDragging(false);
-      startRecording();
-    }
-  }, [isListening, isSpeaking, startRecording]);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (dragStart && isListening && !isLocked) {
-      const touch = e.touches[0];
-      const deltaX = touch.clientX - dragStart.x;
-      const deltaY = Math.abs(touch.clientY - dragStart.y);
-      
-      if (deltaX > 60 && deltaY < 30) {
-        setIsDragging(true);
-        setIsLocked(true);
-        setDragStart(null);
-      }
-    }
-  }, [dragStart, isListening, isLocked]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (dragStart && isListening && !isLocked) {
-      stopRecording();
-    }
-    setDragStart(null);
-    setIsDragging(false);
-  }, [dragStart, isListening, isLocked, stopRecording]);
+    setIsRecording(false);
+  };
 
   const resetConversation = () => {
     stopRecording();
     setIsSpeaking(false);
     setHasError(false);
+    setHasAudio(false);
+    audioDataRef.current = null;
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-900 flex flex-col items-center justify-center relative overflow-hidden px-4">
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden px-4">
       
-      {/* Máscara Central - Tamanho maior e mais destaque */}
-      <div className="relative mb-8 sm:mb-12 md:mb-16 flex items-center justify-center">
+      {/* Máscara Central - Muito maior e sem efeitos de luz */}
+      <div className="flex-1 flex items-center justify-center relative">
         
-        {/* Efeitos visuais quando falando - círculos nos pontos da máscara */}
+        {/* Efeitos visuais sutis quando falando */}
         {isSpeaking && (
           <>
-            <div className="absolute inset-0 rounded-full animate-ping opacity-40">
-              <div className="w-full h-full border-4 border-jarvis-gold rounded-full"></div>
-            </div>
-            <div className="absolute top-1/4 left-1/4 w-4 h-4 bg-jarvis-gold rounded-full animate-pulse opacity-80"></div>
-            <div className="absolute top-1/4 right-1/4 w-4 h-4 bg-jarvis-gold rounded-full animate-pulse opacity-80"></div>
-            <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
-            <div className="absolute bottom-1/3 right-1/3 w-3 h-3 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
+            <div className="absolute top-[35%] left-[42%] w-2 h-2 bg-jarvis-gold rounded-full animate-pulse"></div>
+            <div className="absolute top-[35%] right-[42%] w-2 h-2 bg-jarvis-gold rounded-full animate-pulse"></div>
+            <div className="absolute bottom-1/3 left-1/3 w-1 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
+            <div className="absolute bottom-1/3 right-1/3 w-1 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
           </>
         )}
         
-        {/* Imagem principal do Jarvis - Maior e sem fundo */}
+        {/* Imagem principal do Jarvis - Tamanho muito maior */}
         <img 
           src="/lovable-uploads/dd05e1f7-52c6-4069-8b42-b9d7ec96366c.png"
           alt="Jarvis Interface"
-          className={`w-72 h-72 sm:w-80 sm:h-80 md:w-[28rem] md:h-[28rem] lg:w-[32rem] lg:h-[32rem] object-contain transition-all duration-700 ${
+          className={`w-[85vw] h-[85vw] max-w-[600px] max-h-[600px] object-contain transition-all duration-500 ${
             isActive ? 'scale-100 opacity-100' : 'scale-95 opacity-80'
           } ${
-            isSpeaking ? 'scale-105' : ''
+            isSpeaking ? 'scale-[1.02]' : ''
           } ${
-            isListening ? 'brightness-110' : ''
+            isRecording ? 'brightness-105' : ''
           }`}
-          style={{
-            filter: `
-              ${isListening ? 'drop-shadow(0 0 30px hsl(var(--jarvis-gold))) drop-shadow(0 0 60px hsl(var(--jarvis-gold) / 0.5))' : ''}
-              ${isSpeaking ? 'drop-shadow(0 0 40px hsl(var(--jarvis-gold))) brightness(1.2)' : ''}
-              ${!isListening && !isSpeaking && isActive ? 'drop-shadow(0 0 15px hsl(var(--jarvis-gold) / 0.3))' : ''}
-            `,
-          }}
         />
         
-        {/* Efeito de olhos pulsantes quando ativo */}
-        {isActive && (
+        {/* Efeito de olhos pulsantes quando ativo - mais sutis */}
+        {isActive && !isSpeaking && (
           <>
-            <div className="absolute top-[35%] left-[42%] w-3 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-90"></div>
-            <div className="absolute top-[35%] right-[42%] w-3 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-90"></div>
+            <div className="absolute top-[35%] left-[42%] w-2 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
+            <div className="absolute top-[35%] right-[42%] w-2 h-1 bg-jarvis-gold rounded-full animate-pulse opacity-60"></div>
           </>
-        )}
-        
-        {/* Efeito de respiração quando idle */}
-        {!isListening && !isSpeaking && isActive && (
-          <div className="absolute inset-0 rounded-full border border-jarvis-gold/20 animate-pulse"></div>
         )}
       </div>
 
-      {/* Controles de Microfone */}
-      <div className="flex flex-col items-center space-y-6">
+      {/* Controles de Microfone - Botões simples */}
+      <div className="flex flex-col items-center space-y-4 pb-8">
         
-        {/* Botão principal do microfone com drag to lock */}
-        <div className="relative flex items-center">
+        {/* Botões horizontais */}
+        <div className="flex items-center space-x-4">
           
-          {/* Indicador de arrastar para travar */}
-          {isListening && !isLocked && (
-            <div className="absolute right-full mr-4 text-xs text-jarvis-gold/70 animate-pulse flex items-center">
-              <span className="hidden sm:inline">Arraste →</span>
-              <Lock className="w-3 h-3 ml-1" />
-            </div>
-          )}
-          
-          {/* Botão do microfone */}
+          {/* Botão de gravação */}
           <button
-            ref={micButtonRef}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
+            onClick={isRecording ? stopRecording : startRecording}
             disabled={isSpeaking}
             className={`
               w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 transition-all duration-300 
-              flex items-center justify-center relative overflow-hidden
-              touch-none select-none
-              ${isListening && !isLocked 
-                ? 'border-jarvis-red bg-jarvis-red/20 text-jarvis-red shadow-lg shadow-jarvis-red/50 scale-110' 
-                : isLocked
-                ? 'border-jarvis-gold bg-jarvis-gold/20 text-jarvis-gold shadow-lg shadow-jarvis-gold/50'
-                : 'border-jarvis-gold bg-jarvis-gold/10 text-jarvis-gold hover:bg-jarvis-gold/20 hover:scale-105'
+              flex items-center justify-center relative
+              ${isRecording 
+                ? 'border-jarvis-red bg-jarvis-red/20 text-jarvis-red scale-110' 
+                : 'border-jarvis-red/50 bg-jarvis-red/10 text-jarvis-red/70 hover:bg-jarvis-red/20 hover:text-jarvis-red hover:scale-105'
               }
               ${isSpeaking ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
             `}
           >
-            {isLocked ? <Lock className="w-6 h-6 sm:w-8 sm:h-8" /> : <Mic className="w-6 h-6 sm:w-8 sm:h-8" />}
+            <Mic className="w-6 h-6 sm:w-8 sm:h-8" />
             
-            {/* Efeito de ondas quando gravando */}
-            {isListening && (
-              <div className="absolute inset-0 rounded-full border-2 border-current animate-ping opacity-30"></div>
+            {/* Efeito pulsante quando gravando */}
+            {isRecording && (
+              <div className="absolute inset-0 rounded-full border-2 border-jarvis-red animate-ping opacity-40"></div>
             )}
           </button>
           
-          {/* Botão de parar quando travado */}
-          {isLocked && (
-            <button
-              onClick={stopRecording}
-              className="ml-4 w-12 h-12 sm:w-16 sm:h-16 rounded-full border-2 border-jarvis-red bg-jarvis-red/20 text-jarvis-red hover:bg-jarvis-red/30 transition-all duration-300 flex items-center justify-center"
-            >
-              <Square className="w-4 h-4 sm:w-6 sm:h-6 fill-current" />
-            </button>
-          )}
+          {/* Botão de enviar */}
+          <button
+            onClick={sendToWebhook}
+            disabled={!hasAudio || isSpeaking}
+            className={`
+              w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 transition-all duration-300 
+              flex items-center justify-center
+              ${hasAudio && !isSpeaking
+                ? 'border-jarvis-gold bg-jarvis-gold/20 text-jarvis-gold hover:scale-105' 
+                : 'border-jarvis-gold/30 bg-jarvis-gold/5 text-jarvis-gold/40 cursor-not-allowed'
+              }
+            `}
+          >
+            <Send className="w-6 h-6 sm:w-8 sm:h-8" />
+          </button>
+          
+          {/* Botão de reset */}
+          <button
+            onClick={resetConversation}
+            className="w-12 h-12 sm:w-16 sm:h-16 rounded-full border border-jarvis-gold/30 bg-jarvis-gold/5 text-jarvis-gold/70 hover:bg-jarvis-gold/10 hover:text-jarvis-gold transition-all duration-300 flex items-center justify-center"
+          >
+            <RotateCcw className="w-4 h-4 sm:w-6 sm:h-6" />
+          </button>
         </div>
         
-        {/* Instruções sutis */}
-        <div className="text-center text-xs sm:text-sm text-jarvis-gold/50 max-w-xs">
-          {!isListening && !isSpeaking && !isLocked && (
-            <p>Pressione e segure para falar</p>
-          )}
-          {isListening && !isLocked && (
-            <p>Solte para enviar ou arraste → para travar</p>
-          )}
-          {isLocked && (
-            <p>Gravação travada - Clique ⏹ para parar</p>
-          )}
-          {isSpeaking && (
-            <p>Jarvis está processando...</p>
-          )}
+        {/* Status simples */}
+        <div className="text-center text-xs sm:text-sm text-jarvis-gold/50">
+          {isRecording && <p className="text-jarvis-red">● Gravando...</p>}
+          {hasAudio && !isRecording && !isSpeaking && <p className="text-jarvis-gold">Pronto para enviar</p>}
+          {isSpeaking && <p className="text-jarvis-gold animate-pulse">Jarvis processando...</p>}
+          {!isRecording && !hasAudio && !isSpeaking && <p>Clique no microfone para gravar</p>}
         </div>
-        
-        {/* Botão de reset */}
-        <button
-          onClick={resetConversation}
-          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full border border-jarvis-gold/30 bg-jarvis-gold/5 text-jarvis-gold/70 hover:bg-jarvis-gold/10 hover:text-jarvis-gold transition-all duration-300 flex items-center justify-center"
-        >
-          <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
-        </button>
       </div>
 
       {/* Status de erro */}
