@@ -52,8 +52,8 @@ export function JarvisAvatar({ state, isListening, isResponding }: JarvisAvatarP
         {/* Eyes glow effect overlay */}
         {isResponding && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-8 bg-jarvis-gold-bright/80 rounded-full blur-sm animate-pulse" 
-                 style={{ transform: 'translateY(-20px)' }} />
+            <div className="w-16 h-8 bg-[#A8FCD2]/80 rounded-full blur-sm animate-pulse" 
+                 style={{ transform: 'translateY(20px)' }} />
           </div>
         )}
         
