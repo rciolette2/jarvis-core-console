@@ -1,200 +1,84 @@
-declare global {
-  interface Window {
-    webkitAudioContext?: typeof AudioContext;
-  }
+import { useEffect, useState } from 'react';
+
+interface JarvisAvatarProps {
+  state: 'idle' | 'listening' | 'responding' | 'error';
+  isListening: boolean;
+  isResponding: boolean;
 }
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Mic } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { HudCorner } from './HudCorner';
-import { SpeechBubble } from './SpeechBubble';
-import { CodeStream } from './CodeStream';
-import { AudioVisualizer } from './AudioVisualizer';
-
-export const JarvisInterface = () => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isActive, setIsActive] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState('https://n8n.rcdigitais.com.br/webhook-test/jarvis1');
-  const [hasError, setHasError] = useState(false);
-  const [status, setStatus] = useState<'standby' | 'listening' | 'processing' | 'speaking'>('standby');
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [responseText, setResponseText] = useState('');
-  const [showResponse, setShowResponse] = useState(false);
-  const [latency, setLatency] = useState(0);
-  const { toast } = useToast();
-  const audioRef = useRef<MediaRecorder | null>(null);
-  const audioDataRef = useRef<Blob | null>(null);
-  const recordingIntervalRef = useRef<number | null>(null);
-
-  // Som de ativação
-  const playActivationSound = () => {
-    const AudioCtx = (window.AudioContext ?? window.webkitAudioContext) as typeof AudioContext;
-    const audioContext = new AudioCtx();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.5);
-    
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
-  };
+export function JarvisAvatar({ state, isListening, isResponding }: JarvisAvatarProps) {
+  const [showGlowRing, setShowGlowRing] = useState(false);
 
   useEffect(() => {
-    setIsActive(true);
-    setStatus('standby');
-    playActivationSound();
-  }, []);
-
-  // Timer para gravação
-  useEffect(() => {
-    if (isRecording) {
-      setRecordingTime(0);
-      recordingIntervalRef.current = window.setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
+    if (isListening || isResponding) {
+      setShowGlowRing(true);
     } else {
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-        recordingIntervalRef.current = null;
-      }
+      const timer = setTimeout(() => setShowGlowRing(false), 500);
+      return () => clearTimeout(timer);
     }
-    return () => {
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
-    };
-  }, [isRecording]);
-
-  const sendToWebhook = async () => {
-    if (!audioDataRef.current) return;
-    if (!webhookUrl) {
-      setWebhookUrl(prompt('Configure a URL do webhook:') || '');
-      return;
-    }
-    setHasError(false);
-    setIsSpeaking(true);
-    setStatus('processing');
-    const startTime = Date.now();
-    try {
-      const formData = new FormData();
-      formData.append('audio', audioDataRef.current);
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        body: formData,
-      });
-      const endTime = Date.now();
-      setLatency(endTime - startTime);
-      if (!response.ok) {
-        throw new Error('Webhook failed');
-      }
-      const responseData = await response.text();
-      setResponseText(responseData || 'Comando processado com sucesso');
-      setShowResponse(true);
-      setStatus('speaking');
-      audioDataRef.current = null;
-      setTimeout(() => {
-        setIsSpeaking(false);
-        setStatus('standby');
-      }, 3000);
-    } catch (error: unknown) {
-      setIsSpeaking(false);
-      setStatus('standby');
-      setHasError(true);
-      setTimeout(() => setHasError(false), 3000);
-    }
-  };
-
-  const toggleRecording = async () => {
-    if (isRecording) {
-      if (audioRef.current && audioRef.current.state === 'recording') {
-        audioRef.current.stop();
-      }
-      setIsRecording(false);
-      setStatus('standby');
-      setTimeout(() => {
-        if (audioDataRef.current) {
-          playActivationSound();
-          sendToWebhook();
-        }
-      }, 500);
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        audioRef.current = mediaRecorder;
-        const audioChunks: Blob[] = [];
-        mediaRecorder.ondataavailable = event => {
-          audioChunks.push(event.data);
-        };
-        mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-          audioDataRef.current = audioBlob;
-          stream.getTracks().forEach(track => track.stop());
-        };
-        mediaRecorder.start();
-        setIsRecording(true);
-        setStatus('listening');
-      } catch (error: unknown) {
-        toast({
-          title: "Erro de microfone",
-          description: "Não foi possível acessar o microfone",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
-  const resetConversation = () => {
-    if (audioRef.current && audioRef.current.state === 'recording') {
-      audioRef.current.stop();
-    }
-    setIsRecording(false);
-    setIsSpeaking(false);
-    setHasError(false);
-    setShowResponse(false);
-    setStatus('standby');
-    setRecordingTime(0);
-    audioDataRef.current = null;
-  };
-
-  // Dados HUD
-  const topLeftData = [
-    { label: 'v2.4.7', value: 'ONLINE', status: 'online' as const },
-    { label: 'SYS', value: 'OPTIMAL' },
-    { label: 'PWR', value: '100%' },
-  ];
-  const topRightData = [
-    { label: 'VOICE', value: status === 'listening' ? 'ACTIVE' : 'STANDBY' },
-    { label: 'MIC', value: isRecording ? 'RECORDING' : 'READY' },
-    { label: 'CONN', value: 'SECURE', status: 'online' as const },
-    { label: 'LATENCY', value: `${latency}ms` },
-  ];
-  const bottomLeftData = [
-    { label: 'AUDIO', value: isRecording ? `${Math.floor(recordingTime/60)}:${(recordingTime%60).toString().padStart(2,'0')}` : '0:00' },
-    { label: 'STATUS', value: status.toUpperCase() },
-    { label: 'NEURAL', value: 'ACTIVE', status: 'online' as const },
-  ];
-  const bottomRightData = [
-    { label: 'PROTOCOL', value: 'HTTP/2' },
-    { label: 'ENDPOINT', value: 'SECURE' },
-    { label: 'RESP.TIME', value: `${latency}ms` },
-  ];
+  }, [isListening, isResponding]);
 
   return (
-    <div className="jarvis-interface">
-      <HudCorner data={topLeftData} position="top-left" />
-      <HudCorner data={topRightData} position="top-right" />
-      <HudCorner data={bottomLeftData} position="bottom-left" />
-      <HudCorner data={bottomRightData} position="bottom-right" />
+    <div className="relative flex items-center justify-center">
+      {/* Animated glow rings */}
+      {showGlowRing && (
+        <>
+          <div className="absolute inset-0 rounded-full bg-jarvis-gold/20 animate-glow-ring" />
+          <div className="absolute inset-0 rounded-full bg-jarvis-red/10 animate-glow-ring animation-delay-500" />
+        </>
+      )}
+      
+      {/* Main avatar container */}
+      <div 
+        className={`
+          relative w-64 h-64 lg:w-80 lg:h-80 transition-all duration-500
+          ${isListening ? 'animate-jarvis-pulse' : ''}
+          ${isResponding ? 'animate-eyes-glow' : ''}
+          ${state === 'error' ? 'filter hue-rotate-180' : ''}
+        `}
+      >
+        {/* Avatar image */}
+        <img
+          src="/lovable-uploads/c0b24db6-9e1a-4d6c-959e-1a514688a148.png"
+          alt="Jarvis AI Assistant"
+          className={`
+            w-full h-full object-contain transition-all duration-300
+            ${isListening ? 'drop-shadow-[0_0_30px_rgba(220,38,38,0.6)]' : ''}
+            ${isResponding ? 'drop-shadow-[0_0_40px_rgba(251,191,36,0.8)]' : ''}
+            ${state === 'idle' ? 'drop-shadow-[0_0_20px_rgba(251,191,36,0.3)]' : ''}
+          `}
+        />
+        
+        {/* Eyes glow effect overlay */}
+        {isResponding && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-16 h-8 bg-jarvis-gold-bright/80 rounded-full blur-sm animate-pulse" 
+                 style={{ transform: 'translateY(-20px)' }} />
+          </div>
+        )}
+        
+        {/* Listening pulse overlay */}
+        {isListening && (
+          <div className="absolute inset-0 rounded-full border-2 border-jarvis-red/50 animate-ping" />
+        )}
+        
+        {/* Error state overlay */}
+        {state === 'error' && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-6xl text-destructive animate-pulse">⚠️</div>
+          </div>
+        )}
+      </div>
+      
+      {/* Status text */}
+      <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2">
+        <p className="text-sm text-muted-foreground text-center">
+          {state === 'idle' && 'Aguardando comando...'}
+          {state === 'listening' && 'Ouvindo...'}
+          {state === 'responding' && 'Processando...'}
+          {state === 'error' && 'Sistema temporariamente indisponível'}
+        </p>
+      </div>
     </div>
   );
-};
+}
