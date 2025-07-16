@@ -138,8 +138,7 @@ export default {
 				'jarvis-pulse': 'jarvis-pulse 2s ease-in-out infinite',
 				'eyes-glow': 'eyes-glow 1.5s ease-in-out infinite',
 				'typing-dots': 'typing-dots 1.4s ease-in-out infinite',
-				'glow-ring': 'glow-ring 2s ease-out infinite',
-				'spin-slow': 'spin 3s linear infinite'
+				'glow-ring': 'glow-ring 2s ease-out infinite'
 			},
 			boxShadow: {
 				'jarvis-glow': '0 0 30px hsl(var(--jarvis-gold) / 0.3)',
