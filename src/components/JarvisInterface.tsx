@@ -238,7 +238,7 @@ export const JarvisInterface = () => {
         {/* Imagem principal do Jarvis */}
         <div className="relative">
           <img 
-            src="/lovable-uploads/jarvisironman1.png"
+            src="/lovable-uploads/dd05e1f7-52c6-4069-8b42-b9d7ec96366cjarvisironman1.png"
             alt="Jarvis Interface"
             className={`w-[70vw] h-[70vw] max-w-[500px] max-h-[500px] object-contain transition-all duration-500 ${
               isActive ? 'scale-100 opacity-100' : 'scale-95 opacity-80'
